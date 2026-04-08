@@ -4,7 +4,7 @@
 # Error if x is a function -- used in Cholesky path where we need explicit matrices
 stop_if_function <- function(x, name = "x") {
   if (is.function(x))
-    stop(sprintf("`%s` is a function — supply an explicit matrix or use solver = 'pcg'.", name))
+    stop(sprintf("`%s` is a function -- supply an explicit matrix or use solver = 'pcg'.", name))
   invisible(x)
 }
 

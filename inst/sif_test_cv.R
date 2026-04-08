@@ -45,9 +45,10 @@ tuned_cv <- tune_cv(
   theta_init = c(rho = 0.5),
   lower      = c(rho = 0.01),
   upper      = c(rho = 0.999),
-  k          = 10L,
+  k          = 5L,
   score      = "mse",
-  verbose    = TRUE
+  verbose    = TRUE,
+  log_phi_upper = log(10)
 )
 print(tuned_cv)
 

@@ -2,25 +2,27 @@
 % Please edit documentation in R/solvers.R
 \name{pcg}
 \alias{pcg}
-\title{PCG solver
-Solves A x = b iteratively via preconditioned conjugate gradient}
+\title{PCG solver}
 \usage{
 pcg(apply_A, b, x0 = NULL, precond = NULL, tol = 1e-06, maxit = NULL)
 }
 \arguments{
-\item{apply_A}{function v -> Av}
+\item{apply_A}{function \eqn{v \mapsto Av}}
 
 \item{b}{right hand side vector}
 
 \item{x0}{initial guess, default zero}
 
-\item{precond}{optional preconditioner function v -> M^{-1} v}
+\item{precond}{optional preconditioner function \eqn{v \mapsto M^{-1} v}}
 
 \item{tol}{convergence tolerance}
 
 \item{maxit}{maximum iterations}
 }
+\value{
+list with elements \code{x} (solution), \code{converged} (logical),
+and \code{iter} (number of iterations taken)
+}
 \description{
-PCG solver
-Solves A x = b iteratively via preconditioned conjugate gradient
+Solves \eqn{Ax = b} iteratively via preconditioned conjugate gradient.
 }

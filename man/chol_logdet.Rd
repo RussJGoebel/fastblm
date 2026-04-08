@@ -7,8 +7,11 @@
 chol_logdet(C)
 }
 \arguments{
-\item{C}{CHMfactor from Matrix::Cholesky}
+\item{C}{CHMfactor from \code{Matrix::Cholesky}}
+}
+\value{
+numeric scalar
 }
 \description{
-Cholesky log determinant
+Computes \eqn{\log |A|} from a Cholesky factor.
 }

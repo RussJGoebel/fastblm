@@ -9,7 +9,8 @@ posterior_se(fit, A_new = NULL, n_probes = 50L)
 \arguments{
 \item{fit}{fastblm_fit object}
 
-\item{A_new}{optional matrix or function of linear combinations. NULL = identity.}
+\item{A_new}{optional matrix of linear combinations (n_new x p). NULL = identity.
+May be a sparse Matrix (e.g. \code{[I_p | X_grid]} for augmented fits).}
 
 \item{n_probes}{number of Hutchinson probes (PCG path only)}
 }
@@ -17,6 +18,17 @@ posterior_se(fit, A_new = NULL, n_probes = 50L)
 numeric vector of posterior SEs
 }
 \description{
-Computes sqrt(diag(A_new Sigma_post A_new')) where Sigma_post = sigma2e * K^{-1}.
-If A_new is NULL, returns marginal SEs for the coefficients themselves.
+Computes \eqn{\sqrt{\mathrm{diag}(A_{\mathrm{new}} \Sigma_{\mathrm{post}} A_{\mathrm{new}}^\top)}}
+where \eqn{\Sigma_{\mathrm{post}} = \sigma^2_e K^{-1}}.
+If \code{A_new} is NULL, returns marginal SEs for the coefficients themselves.
+If the fit has an active constraint (from \code{constrain()}), the Schur
+correction is applied automatically.
+}
+\details{
+Three paths depending on fit solver:
+\describe{
+\item{\code{"cholesky"}}{Exact, via p x p triangular solves.}
+\item{\code{"woodbury"}}{Exact, via cached n x n factor. Cheap when p >> n.}
+\item{\code{"pcg"}}{Stochastic Hutchinson estimator, \code{n_probes} PCG solves regardless of p.}
+}
 }

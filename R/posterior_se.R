@@ -1,17 +1,21 @@
 #' Posterior standard errors for coefficients or linear combinations
 #'
-#' Computes sqrt(diag(A_new Sigma_post A_new')) where Sigma_post = sigma2e * K^{-1}.
-#' If A_new is NULL, returns marginal SEs for the coefficients themselves.
-#' If the fit has an active constraint (from constrain()), the Schur correction
-#' is applied automatically.
+#' Computes \eqn{\sqrt{\mathrm{diag}(A_{\mathrm{new}} \Sigma_{\mathrm{post}} A_{\mathrm{new}}^\top)}}
+#' where \eqn{\Sigma_{\mathrm{post}} = \sigma^2_e K^{-1}}.
+#' If \code{A_new} is NULL, returns marginal SEs for the coefficients themselves.
+#' If the fit has an active constraint (from \code{constrain()}), the Schur
+#' correction is applied automatically.
 #'
 #' Three paths depending on fit solver:
-#'   "cholesky"  -- exact, via p x p triangular solves
-#'   "woodbury"  -- exact, via cached n x n factor. Cheap when p >> n.
-#'   "pcg"       -- stochastic Hutchinson, n_probes PCG solves regardless of p
+#' \describe{
+#'   \item{\code{"cholesky"}}{Exact, via p x p triangular solves.}
+#'   \item{\code{"woodbury"}}{Exact, via cached n x n factor. Cheap when p >> n.}
+#'   \item{\code{"pcg"}}{Stochastic Hutchinson estimator, \code{n_probes} PCG solves regardless of p.}
+#' }
 #'
 #' @param fit fastblm_fit object
 #' @param A_new optional matrix of linear combinations (n_new x p). NULL = identity.
+#'   May be a sparse Matrix (e.g. \code{[I_p | X_grid]} for augmented fits).
 #' @param n_probes number of Hutchinson probes (PCG path only)
 #'
 #' @return numeric vector of posterior SEs
@@ -45,8 +49,8 @@ posterior_se <- function(fit, A_new = NULL, n_probes = 50L) {
 .diag_var_cholesky <- function(fit, A_new, p) {
   C <- fit$chol_factor
   if (is.null(C)) stop("No Cholesky factor found in fit object.")
-  A        <- if (is.null(A_new)) Matrix::Diagonal(p) else A_new
-  Z        <- Matrix::solve(C, Matrix::t(A))
+  A <- if (is.null(A_new)) Matrix::Diagonal(p) else A_new
+  Z <- Matrix::solve(C, Matrix::t(A))
   as.numeric(Matrix::colSums(Matrix::t(A) * Z)) * fit$sigma2e
 }
 
@@ -56,7 +60,8 @@ posterior_se <- function(fit, A_new = NULL, n_probes = 50L) {
   CM     <- fit$chol_M
   QinvAt <- fit$QinvAt
   phi    <- fit$phi
-  if (is.null(CM) || is.null(QinvAt)) stop("Woodbury cached quantities not found in fit object.")
+  if (is.null(CM) || is.null(QinvAt))
+    stop("Woodbury cached quantities not found in fit object.")
 
   MinvAQinv <- as.matrix(Matrix::solve(CM, t(QinvAt)))   # n x p
 
@@ -65,15 +70,15 @@ posterior_se <- function(fit, A_new = NULL, n_probes = 50L) {
       ei <- rep(0, p); ei[i] <- 1
       fit$apply_Qinv(ei)[i]
     }, numeric(1L))
-    diag_corr <- rowSums(QinvAt * t(MinvAQinv))
+    diag_corr <- Matrix::rowSums(QinvAt * t(MinvAQinv))
     (phi * diag_Qinv - phi^2 * diag_corr) * fit$sigma2e
 
   } else {
     QinvAtnew    <- apply(t(A_new), 2, fit$apply_Qinv)
-    diag_AQinvAt <- colSums(t(A_new) * QinvAtnew)
+    diag_AQinvAt <- Matrix::colSums(t(A_new) * QinvAtnew)
     AnewQinvAt   <- A_new %*% QinvAt
     MinvAnew     <- as.matrix(Matrix::solve(CM, t(AnewQinvAt)))
-    diag_corr    <- rowSums(AnewQinvAt * t(MinvAnew))
+    diag_corr    <- Matrix::rowSums(AnewQinvAt * t(MinvAnew))
     (phi * diag_AQinvAt - phi^2 * diag_corr) * fit$sigma2e
   }
 }
@@ -88,8 +93,8 @@ posterior_se <- function(fit, A_new = NULL, n_probes = 50L) {
     probes <- .rademacher(p, n_probes)
     .hutchinson_diag(apply_Kinv, probes) * fit$sigma2e
   } else {
-    A      <- A_new
-    n_new  <- nrow(A)
+    A     <- A_new
+    n_new <- nrow(A)
     probes <- .rademacher(n_new, n_probes)
     apply_AKinvAt <- function(z) {
       as.numeric(A %*% apply_Kinv(as.numeric(Matrix::crossprod(A, z))))
@@ -108,15 +113,16 @@ posterior_se <- function(fit, A_new = NULL, n_probes = 50L) {
   CC      <- fit$constraint$CC        # upper Cholesky of C Sigma C'
 
   # W = SigmaCt (CC^T)^{-1}  -- p x q
-  # CC is upper triangular from chol(), CC^T is lower triangular
-  # solve CC^T W^T = SigmaCt^T  via forwardsolve
-  W <- t(forwardsolve(t(CC), t(SigmaCt)))   # p x q
+  W <- t(forwardsolve(t(CC), t(SigmaCt)))   # p x q  (dense, q is small)
 
   if (is.null(A_new)) {
-    rowSums(W^2)
+    # W is dense p x q -- rowSums fine
+    Matrix::rowSums(W^2)
   } else {
+    # A_new may be sparse (e.g. [I_p | X_grid] for augmented fits).
+    # Use Matrix::rowSums to handle both sparse and dense results correctly.
     AnewW <- A_new %*% W              # n_new x q
-    rowSums(AnewW^2)
+    Matrix::rowSums(AnewW^2)
   }
 }
 

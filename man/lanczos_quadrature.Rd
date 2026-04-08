@@ -2,13 +2,12 @@
 % Please edit documentation in R/solvers.R
 \name{lanczos_quadrature}
 \alias{lanczos_quadrature}
-\title{Single Lanczos quadrature estimate for f(A) applied to probe vector
-Uses Lanczos tridiagonalization + Gauss quadrature}
+\title{Single Lanczos quadrature estimate for f(A) applied to probe vector}
 \usage{
 lanczos_quadrature(apply_A, probe, f, n_steps)
 }
 \arguments{
-\item{apply_A}{function v -> Av}
+\item{apply_A}{function \eqn{v \mapsto Av}}
 
 \item{probe}{probe vector}
 
@@ -16,7 +15,10 @@ lanczos_quadrature(apply_A, probe, f, n_steps)
 
 \item{n_steps}{number of Lanczos steps}
 }
+\value{
+list with element \code{estimate}
+}
 \description{
-Single Lanczos quadrature estimate for f(A) applied to probe vector
-Uses Lanczos tridiagonalization + Gauss quadrature
+Uses Lanczos tridiagonalization and Gauss quadrature to estimate
+\eqn{v^\top f(A) v} for a scalar function \eqn{f}.
 }

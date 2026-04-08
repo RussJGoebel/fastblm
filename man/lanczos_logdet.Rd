@@ -7,12 +7,16 @@
 lanczos_logdet(apply_A, probes, n_steps = 50L)
 }
 \arguments{
-\item{apply_A}{function v -> Av (symmetric PD)}
+\item{apply_A}{function \eqn{v \mapsto Av} (must be symmetric positive definite)}
 
 \item{probes}{matrix of Rademacher probe vectors (p x n_probes)}
 
 \item{n_steps}{number of Lanczos steps}
 }
+\value{
+numeric scalar estimate of \eqn{\log |A|}
+}
 \description{
-Stochastic log determinant via Lanczos quadrature
+Estimates \eqn{\log |A|} using stochastic Lanczos quadrature with
+Rademacher probe vectors.
 }

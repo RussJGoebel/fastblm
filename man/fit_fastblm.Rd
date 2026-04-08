@@ -9,39 +9,58 @@ fit_fastblm(
   A,
   Q,
   phi,
-  sigma2e,
   R_inv = NULL,
+  Q_inv = NULL,
   A_t = NULL,
   solver = "cholesky",
   pcg_tol = 1e-06,
-  pcg_maxit = NULL
+  pcg_maxit = NULL,
+  pcg_precond = NULL
 )
 }
 \arguments{
 \item{y}{numeric response vector length n}
 
-\item{A}{n x p design matrix, or function v -> Av (requires A_t)}
+\item{A}{n x p design matrix, or function \eqn{v \mapsto Av} (requires A_t)}
 
-\item{Q}{p x p prior precision matrix, or function v -> Qv}
+\item{Q}{p x p prior precision matrix, or function \eqn{v \mapsto Qv}}
 
-\item{phi}{signal-to-noise ratio sigma2b / sigma2e}
+\item{phi}{signal-to-noise ratio \eqn{\sigma^2_b / \sigma^2_e}}
 
-\item{sigma2e}{noise variance (used only for uncertainty scaling)}
+\item{R_inv}{n x n inverse noise covariance, or function \eqn{v \mapsto R^{-1}v}. NULL = identity.}
 
-\item{R_inv}{n x n inverse noise covariance, or function v -> R_inv v. NULL = identity.}
+\item{Q_inv}{p x p prior covariance matrix, or function \eqn{v \mapsto Q^{-1}v}.
+Required for \code{solver = "woodbury"}.}
 
-\item{A_t}{optional transpose operator function v -> A'v. Required if A is a function.}
+\item{A_t}{optional transpose operator function \eqn{v \mapsto A^\top v}.
+Required if A is a function.}
 
-\item{solver}{"cholesky" or "pcg"}
+\item{solver}{one of \code{"cholesky"}, \code{"pcg"}, or \code{"woodbury"}}
 
 \item{pcg_tol}{PCG convergence tolerance}
 
 \item{pcg_maxit}{PCG max iterations}
+
+\item{pcg_precond}{optional preconditioner function \eqn{v \mapsto M^{-1} v}
+passed to \code{\link{pcg}}. NULL = identity (no preconditioning).}
 }
 \value{
 object of class fastblm_fit
 }
 \description{
-Computes the posterior mean of x given y = Ax + epsilon,
-x ~ N(0, phi * sigma2e * Q^{-1}), epsilon ~ N(0, sigma2e * R).
+Computes the posterior mean of \eqn{x} given
+\eqn{y = Ax + \varepsilon}, with priors
+\eqn{x \sim N(0, \phi \sigma^2_e Q^{-1})} and
+\eqn{\varepsilon \sim N(0, \sigma^2_e R)}.
+}
+\details{
+\eqn{\sigma^2_e} is estimated as the posterior mode given \eqn{\phi}:
+\deqn{\hat{\sigma}^2_e = \frac{y^\top R^{-1} y - \mu^\top A^\top R^{-1} y}{n}}
+
+Three solvers are available:
+\describe{
+\item{\code{"cholesky"}}{p x p Cholesky factor. Best when p << n.}
+\item{\code{"pcg"}}{Iterative PCG. Best when p >> n and \eqn{Q^{-1}} is not cheap.}
+\item{\code{"woodbury"}}{n x n Cholesky via Woodbury. Best when p >> n and \eqn{Q^{-1}} is cheap.}
+}
 }

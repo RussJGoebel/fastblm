@@ -1,36 +1,45 @@
 #' Fit a Bayesian linear model
 #'
-#' Computes the posterior mean of x given y = Ax + epsilon,
-#' x ~ N(0, phi * sigma2e * Q^{-1}), epsilon ~ N(0, sigma2e * R).
+#' Computes the posterior mean of \eqn{x} given
+#' \eqn{y = Ax + \varepsilon}, with priors
+#' \eqn{x \sim N(0, \phi \sigma^2_e Q^{-1})} and
+#' \eqn{\varepsilon \sim N(0, \sigma^2_e R)}.
 #'
-#' sigma2e is estimated as the posterior mode given phi:
-#' sigma2e_hat = (y' R^{-1} y - mu' A' R^{-1} y) / n
+#' \eqn{\sigma^2_e} is estimated as the posterior mode given \eqn{\phi}:
+#' \deqn{\hat{\sigma}^2_e = \frac{y^\top R^{-1} y - \mu^\top A^\top R^{-1} y}{n}}
 #'
 #' Three solvers are available:
-#'   "cholesky" -- p x p Cholesky factor. Best when p << n.
-#'   "pcg"      -- iterative PCG. Best when p >> n and Q^{-1} is not cheap.
-#'   "woodbury" -- n x n Cholesky via Woodbury. Best when p >> n and Q^{-1} is cheap.
+#' \describe{
+#'   \item{\code{"cholesky"}}{p x p Cholesky factor. Best when p << n.}
+#'   \item{\code{"pcg"}}{Iterative PCG. Best when p >> n and \eqn{Q^{-1}} is not cheap.}
+#'   \item{\code{"woodbury"}}{n x n Cholesky via Woodbury. Best when p >> n and \eqn{Q^{-1}} is cheap.}
+#' }
 #'
 #' @param y numeric response vector length n
-#' @param A n x p design matrix, or function v -> Av (requires A_t)
-#' @param Q p x p prior precision matrix, or function v -> Qv
-#' @param phi signal-to-noise ratio sigma2b / sigma2e
-#' @param R_inv n x n inverse noise covariance, or function v -> R_inv v. NULL = identity.
-#' @param Q_inv p x p prior covariance matrix, or function v -> Q^{-1}v. Required for solver = "woodbury".
-#' @param A_t optional transpose operator function v -> A'v. Required if A is a function.
-#' @param solver "cholesky", "pcg", or "woodbury"
+#' @param A n x p design matrix, or function \eqn{v \mapsto Av} (requires A_t)
+#' @param Q p x p prior precision matrix, or function \eqn{v \mapsto Qv}
+#' @param phi signal-to-noise ratio \eqn{\sigma^2_b / \sigma^2_e}
+#' @param R_inv n x n inverse noise covariance, or function \eqn{v \mapsto R^{-1}v}. NULL = identity.
+#' @param Q_inv p x p prior covariance matrix, or function \eqn{v \mapsto Q^{-1}v}.
+#'   Required for \code{solver = "woodbury"}.
+#' @param A_t optional transpose operator function \eqn{v \mapsto A^\top v}.
+#'   Required if A is a function.
+#' @param solver one of \code{"cholesky"}, \code{"pcg"}, or \code{"woodbury"}
 #' @param pcg_tol PCG convergence tolerance
 #' @param pcg_maxit PCG max iterations
+#' @param pcg_precond optional preconditioner function \eqn{v \mapsto M^{-1} v}
+#'   passed to \code{\link{pcg}}. NULL = identity (no preconditioning).
 #'
 #' @return object of class fastblm_fit
 #' @export
 fit_fastblm <- function(y, A, Q, phi,
-                        R_inv     = NULL,
-                        Q_inv     = NULL,
-                        A_t       = NULL,
-                        solver    = "cholesky",
-                        pcg_tol   = 1e-6,
-                        pcg_maxit = NULL) {
+                        R_inv       = NULL,
+                        Q_inv       = NULL,
+                        A_t         = NULL,
+                        solver      = "cholesky",
+                        pcg_tol     = 1e-6,
+                        pcg_maxit   = NULL,
+                        pcg_precond = NULL) {
 
   y <- as.numeric(y)
   n <- length(y)
@@ -60,7 +69,8 @@ fit_fastblm <- function(y, A, Q, phi,
     apply_Q    <- as_apply(Q)
     apply_Rinv <- as_apply(R_inv)
     .fit_pcg(y, apply_A, apply_At, apply_Q, phi, apply_Rinv, n,
-             tol = pcg_tol, maxit = pcg_maxit %||% (4L * p))
+             tol = pcg_tol, maxit = pcg_maxit %||% (4L * p),
+             precond = pcg_precond)
 
   } else {
     stop("solver must be 'cholesky', 'woodbury', or 'pcg'.")
@@ -134,8 +144,8 @@ fit_fastblm <- function(y, A, Q, phi,
       sigma2e        = sigma2e,
       sigma2b        = phi * sigma2e,
       chol_factor    = NULL,
-      chol_M         = CM,         # n x n CHMfactor — reused in posterior_se
-      QinvAt         = QinvAt,     # p x n — reused in posterior_se
+      chol_M         = CM,         # n x n CHMfactor -- reused in posterior_se
+      QinvAt         = QinvAt,     # p x n -- reused in posterior_se
       apply_K        = NULL,
       apply_Qinv     = apply_Qinv, # reused for diag(Q^{-1}) in posterior_se
       solver_type    = "woodbury",
@@ -149,13 +159,13 @@ fit_fastblm <- function(y, A, Q, phi,
 
 # Internal: fit via PCG
 .fit_pcg <- function(y, apply_A, apply_At, apply_Q, phi, apply_Rinv, n,
-                     tol, maxit) {
+                     tol, maxit, precond = NULL) {
   Rinvy   <- apply_Rinv(y)
   AtRinvy <- apply_At(Rinvy)
   yRinvy  <- as.numeric(crossprod(y, Rinvy))
 
   apply_K <- make_apply_K(apply_A, apply_At, apply_Q, apply_Rinv, phi)
-  result  <- pcg(apply_K, AtRinvy, tol = tol, maxit = maxit)
+  result  <- pcg(apply_K, AtRinvy, tol = tol, maxit = maxit, precond = precond)
   if (!result$converged) warning("PCG did not converge at fit time.")
   mu      <- result$x
   sigma2e <- .estimate_sigma2e(yRinvy, AtRinvy, mu, n)

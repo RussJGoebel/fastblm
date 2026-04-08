@@ -2,21 +2,31 @@
 % Please edit documentation in R/project_reml.R
 \name{reml_project}
 \alias{reml_project}
-\title{REML projection}
+\title{Project out fixed effects for REML}
 \usage{
-reml_project(y, A, X_fixed)
+reml_project(y, A, X_fixed, R_inv = NULL)
 }
 \arguments{
-\item{y}{numeric response vector}
+\item{y}{numeric response vector length n}
 
 \item{A}{n x p design matrix}
 
 \item{X_fixed}{n x q matrix of fixed covariates}
+
+\item{R_inv}{n x n inverse noise covariance matrix. NULL = identity.}
 }
 \value{
 list with projected y, A, and n_eff
 }
 \description{
-Projects y and A onto the orthogonal complement of X_fixed,
-removing the influence of fixed effects on hyperparameter estimation.
+Projects \eqn{y} and \eqn{A} onto the orthogonal complement of
+\eqn{X_{\mathrm{fixed}}} with respect to the \eqn{R^{-1}}-weighted inner
+product. When \code{R_inv} is NULL (identity), this reduces to ordinary QR
+residualisation.
+}
+\details{
+For general \eqn{R}, the projection whitens by \eqn{R^{-1/2}},
+residualises, then back-transforms, so the returned \eqn{y^*} and
+\eqn{A^*} satisfy \eqn{X^\top R^{-1} y^* = 0} and
+\eqn{X^\top R^{-1} A^* = 0}.
 }
