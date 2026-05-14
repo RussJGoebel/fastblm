@@ -80,14 +80,14 @@ fit_fastblm <- function(y, A, Q, phi,
 # Estimate sigma2e as posterior mode given phi and posterior mean
 # sigma2e = (y' R^{-1} y - mu' A' R^{-1} y) / n
 .estimate_sigma2e <- function(yRinvy, AtRinvy, mu, n) {
-  as.numeric((yRinvy - crossprod(mu, AtRinvy)) / n)
+  as.numeric((yRinvy - Matrix::crossprod(mu, AtRinvy)) / n)
 }
 
 # Internal: fit via p x p sparse Cholesky
 .fit_cholesky <- function(y, A, Q, phi, Rinv, n) {
   Rinvy   <- Rinv %*% y
   AtRinvy <- as.numeric(Matrix::crossprod(A, Rinvy))
-  yRinvy  <- as.numeric(crossprod(y, Rinvy))
+  yRinvy  <- as.numeric(Matrix::crossprod(y, Rinvy))
 
   AtRinvA <- Matrix::crossprod(A, Rinv %*% A)
   K       <- Matrix::forceSymmetric(AtRinvA + (1/phi) * Q)
@@ -133,8 +133,8 @@ fit_fastblm <- function(y, A, Q, phi,
 
   # sigma2e
   Rinvy   <- Rinv %*% y
-  AtRinvy <- as.numeric(Matrix::crossprod(A, Rinvy))
-  yRinvy  <- as.numeric(crossprod(y, Rinvy))
+  AtRinvy <- as.numeric(Matrix::Matrix::crossprod(A, Rinvy))
+  yRinvy  <- as.numeric(Matrix::crossprod(y, Rinvy))
   sigma2e <- .estimate_sigma2e(yRinvy, AtRinvy, mu, n)
 
   structure(
@@ -162,7 +162,7 @@ fit_fastblm <- function(y, A, Q, phi,
                      tol, maxit, precond = NULL) {
   Rinvy   <- apply_Rinv(y)
   AtRinvy <- apply_At(Rinvy)
-  yRinvy  <- as.numeric(crossprod(y, Rinvy))
+  yRinvy  <- as.numeric(Matrix::crossprod(y, Rinvy))
 
   apply_K <- make_apply_K(apply_A, apply_At, apply_Q, apply_Rinv, phi)
   result  <- pcg(apply_K, AtRinvy, tol = tol, maxit = maxit, precond = precond)
