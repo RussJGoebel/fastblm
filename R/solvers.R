@@ -14,7 +14,7 @@
 #' @export
 pcg <- function(apply_A, b, x0 = NULL, precond = NULL, tol = 1e-6, maxit = NULL) {
   p     <- length(b)
-  maxit <- maxit %||% (4L * p)
+  maxit <- maxit %||% (2L * p)
   x     <- x0 %||% rep(0, p)
 
   precond <- precond %||% function(v) v
@@ -31,7 +31,7 @@ pcg <- function(apply_A, b, x0 = NULL, precond = NULL, tol = 1e-6, maxit = NULL)
     alpha <- rz / dAd
     x     <- x + alpha * d
     r     <- r - alpha * Ad
-    if (sqrt(sum(r^2)) < tol) return(list(x = x, converged = TRUE, iter = i))
+    if (sqrt(sum(r^2)) < tol * max(1, sqrt(sum(b^2)))) return(list(x = x, converged = TRUE, iter = i))
     z     <- precond(r)
     rz_new <- as.numeric(crossprod(r, z))
     beta  <- rz_new / rz

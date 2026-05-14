@@ -9,10 +9,10 @@
 #' \deqn{\Sigma_c = \Sigma - \Sigma C^\top (C \Sigma C^\top)^{-1} C \Sigma}
 #'
 #' Numerically, the mean correction is computed via \eqn{K^{-1} C^\top}
-#' (without \eqn{\sigma^2_e}) since \eqn{\sigma^2_e} cancels exactly in
+#' (without \eqn{\sigma^{2}_{e}}) since \eqn{\sigma^{2}_{e}} cancels exactly in
 #' \eqn{\Sigma C^\top (C \Sigma C^\top)^{-1}}. This avoids catastrophic
-#' cancellation when \eqn{\sigma^2_e} is small and \eqn{K^{-1}} is large.
-#' \eqn{\sigma^2_e} is reintroduced only for the cached \code{SigmaCt} used
+#' cancellation when \eqn{\sigma^{2}_{e}} is small and \eqn{K^{-1}} is large.
+#' \eqn{\sigma^{2}_{e}} is reintroduced only for the cached \code{SigmaCt} used
 #' by \code{posterior_se}.
 #'
 #' @param fit fastblm_fit object

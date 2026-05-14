@@ -20,8 +20,13 @@ tune_cv(
   pcg_tol = 1e-06,
   pcg_maxit = NULL,
   Q_inv = NULL,
-  constraint_matrix = NULL,
-  X_cov = NULL,
+  constraint = NULL,
+  precond_fun = NULL,
+  optim_method = c("lbfgsb", "coordinate"),
+  coord_tol = 0.001,
+  coord_maxit = 20L,
+  lbfgsb_control = list(),
+  weighted_folds = FALSE,
   seed = NULL,
   folds = NULL,
   parallel = FALSE,
@@ -33,7 +38,16 @@ tune_cv(
 
 \item{A}{n x p design matrix}
 
-\item{Q_fun}{function(theta) -> list with Q (required), log_det_Q (optional)}
+\item{Q_fun}{function returning prior. Two calling conventions are supported:
+\itemize{
+\item \code{function(theta)}: Q does not depend on the fold. Called once
+per theta evaluation and reused across all folds and phi evaluations.
+\item \code{function(theta, A_train)}: Q depends on the training data
+(e.g. soft RSR where \eqn{C = X_{\rm obs,train}^\top A_{\rm train}}
+is fold-specific). Called once per fold per phi evaluation.
+}
+In both cases the return value must be a list with element \code{Q}
+(required) and optionally \code{log_det_Q}.}
 
 \item{R_inv}{n x n inverse noise covariance. NULL = identity.}
 
@@ -61,23 +75,43 @@ tune_cv(
 \item{Q_inv}{optional p x p prior covariance or function v -> Q^{-1}v.
 Required when solver = "woodbury".}
 
-\item{constraint_matrix}{optional constraint matrix C such that C \\%*\\% gamma = 0
-is enforced on the posterior. Supply either this or \code{X_cov}, not both.}
+\item{constraint}{optional constraint specification. One of:
+\itemize{
+\item \code{NULL} (default): no constraint applied.
+\item a \code{q x p} matrix \code{C}: the fixed constraint \eqn{C\gamma = 0}
+applied identically on every fold.
+\item a function \code{function(train_idx, A_train) -> C}: called once per
+fold to produce a fold-specific constraint matrix.
+}}
 
-\item{X_cov}{optional n x q matrix of covariates used to compute the constraint
-matrix per fold as \code{t(X_cov[train,]) \%*\% A_train}. Supply either this
-or \code{constraint_matrix}, not both.}
+\item{precond_fun}{optional function \code{function(phi, prior, A_train, y_train)}
+returning a preconditioner function for PCG. NULL = identity.}
 
-\item{seed}{optional integer seed for fold assignment reproducibility. Ignored
-if \code{folds} is supplied.}
+\item{optim_method}{optimizer to use when \code{length(theta_init) > 1}.
+One of:
+\itemize{
+\item \code{"lbfgsb"} (default): L-BFGS-B via \code{stats::optim}.
+\item \code{"coordinate"}: Coordinate-wise golden section search.
+}}
+
+\item{coord_tol}{convergence tolerance for coordinate descent. Default \code{1e-3}.}
+
+\item{coord_maxit}{maximum number of coordinate descent cycles. Default 20.}
+
+\item{lbfgsb_control}{named list of control parameters passed to
+\code{stats::optim} when \code{optim_method = "lbfgsb"}.}
+
+\item{weighted_folds}{logical. If TRUE, CV scores are weighted by fold size
+(number of observations per fold) rather than averaging folds equally.
+Useful when folds are unequal in size, e.g. with spatially blocked CV.
+Default FALSE preserves existing behaviour.}
+
+\item{seed}{optional integer seed for fold assignment reproducibility.}
 
 \item{folds}{optional integer vector of length n giving pre-specified fold
 assignments. If supplied, \code{k} and \code{seed} are ignored.}
 
-\item{parallel}{logical. If TRUE, evaluates CV folds in parallel using
-\code{future.apply::future_lapply}. The parallelization backend is
-controlled by the user via \code{future::plan()} before calling this
-function. Default FALSE.}
+\item{parallel}{logical. If TRUE, evaluates CV folds in parallel. Default FALSE.}
 
 \item{verbose}{logical}
 }
