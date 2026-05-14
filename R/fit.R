@@ -133,7 +133,7 @@ fit_fastblm <- function(y, A, Q, phi,
 
   # sigma2e
   Rinvy   <- Rinv %*% y
-  AtRinvy <- as.numeric(Matrix::Matrix::crossprod(A, Rinvy))
+  AtRinvy <- as.numeric(Matrix::crossprod(A, Rinvy))
   yRinvy  <- as.numeric(Matrix::crossprod(y, Rinvy))
   sigma2e <- .estimate_sigma2e(yRinvy, AtRinvy, mu, n)
 
