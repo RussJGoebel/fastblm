@@ -39,7 +39,10 @@ fit_fastblm <- function(y, A, Q, phi,
                         solver      = "cholesky",
                         pcg_tol     = 1e-6,
                         pcg_maxit   = NULL,
-                        pcg_precond = NULL) {
+                        pcg_precond = NULL,
+                        AtRinvA     = NULL,
+                        AtRinvy     = NULL,
+                        yRinvy      = NULL) {
 
   y <- as.numeric(y)
   n <- length(y)
@@ -50,7 +53,8 @@ fit_fastblm <- function(y, A, Q, phi,
     stop_if_function(Q,     "Q")
     stop_if_function(R_inv, "R_inv")
     Rinv <- resolve_Rinv(R_inv, n)
-    .fit_cholesky(y, A, Q, phi, Rinv, n)
+    .fit_cholesky(y, A, Q, phi, Rinv, n,
+                  AtRinvA = AtRinvA, AtRinvy = AtRinvy, yRinvy = yRinvy)
 
   } else if (solver == "woodbury") {
     if (is.null(Q_inv)) stop("solver = 'woodbury' requires Q_inv.")
@@ -84,12 +88,16 @@ fit_fastblm <- function(y, A, Q, phi,
 }
 
 # Internal: fit via p x p sparse Cholesky
-.fit_cholesky <- function(y, A, Q, phi, Rinv, n) {
-  Rinvy   <- Rinv %*% y
-  AtRinvy <- as.numeric(Matrix::crossprod(A, Rinvy))
-  yRinvy  <- as.numeric(Matrix::crossprod(y, Rinvy))
-
-  AtRinvA <- Matrix::crossprod(A, Rinv %*% A)
+# If AtRinvA, AtRinvy, yRinvy are precomputed, they are used directly
+# (avoids recomputing A'A which is O(n*p^2) and dominates cost).
+.fit_cholesky <- function(y, A, Q, phi, Rinv, n,
+                          AtRinvA = NULL, AtRinvy = NULL, yRinvy = NULL) {
+  if (is.null(AtRinvA)) {
+    Rinvy   <- Rinv %*% y
+    AtRinvy <- as.numeric(Matrix::crossprod(A, Rinvy))
+    yRinvy  <- as.numeric(Matrix::crossprod(y, Rinvy))
+    AtRinvA <- Matrix::crossprod(A, Rinv %*% A)
+  }
   K       <- Matrix::forceSymmetric(AtRinvA + (1/phi) * Q)
   C       <- Matrix::Cholesky(K)
   mu      <- as.numeric(Matrix::solve(C, AtRinvy))
@@ -118,9 +126,15 @@ fit_fastblm <- function(y, A, Q, phi,
 # Uses: x = phi Q^{-1} A' M^{-1} y  where M = phi A Q^{-1} A' + R
 # Cheap when p >> n and Q^{-1} is easy to apply
 .fit_woodbury <- function(y, A, apply_Qinv, phi, Rinv, n, p) {
-  # form Q^{-1} A' -- p x n matrix, requires n applications of Q^{-1}
-  At     <- Matrix::t(A)
-  QinvAt <- apply(At, 2, apply_Qinv)   # p x n
+  # form Q^{-1} A' -- p x n matrix
+  At <- Matrix::t(A)
+  # If apply_Qinv is actually a matrix, use direct multiplication (much faster
+  # than apply-ing a function column by column).
+  QinvAt <- if (is_matrix(apply_Qinv)) {
+    as.matrix(apply_Qinv %*% At)
+  } else {
+    apply(At, 2, apply_Qinv)            # p x n, one call per observation
+  }
 
   # M = phi A Q^{-1} A' + R  -- n x n
   AQinvAt <- A %*% QinvAt              # n x n

@@ -15,7 +15,10 @@ fit_fastblm(
   solver = "cholesky",
   pcg_tol = 1e-06,
   pcg_maxit = NULL,
-  pcg_precond = NULL
+  pcg_precond = NULL,
+  AtRinvA = NULL,
+  AtRinvy = NULL,
+  yRinvy = NULL
 )
 }
 \arguments{

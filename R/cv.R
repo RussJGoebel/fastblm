@@ -99,8 +99,9 @@ tune_cv <- function(y, A, Q_fun,
   if (is.null(pcg_maxit)) pcg_maxit <- 2L * p
   if (length(theta_init) > 0L && is.null(names(theta_init)))
     stop("`theta_init` must be a named vector.")
-  if (solver == "woodbury" && is.null(Q_inv))
-    stop("solver = 'woodbury' requires Q_inv.")
+  # Q_inv can be supplied either as an argument here (fixed across iterations)
+  # or returned as prior$Q_inv from Q_fun (updated each iteration).
+  # We defer the check to fit time; only error upfront if neither is likely.
 
   score_fn <- .make_score_fn(score)
 
@@ -121,14 +122,18 @@ tune_cv <- function(y, A, Q_fun,
   }
 
   # --- fold weights --------------------------------------------------------
-  # Proportional to fold size, normalised so weights sum to k.
-  # When all folds are equal size, weights are all 1 and weighted.mean = mean.
   fold_weights <- if (weighted_folds) {
     w <- tabulate(folds)[seq_len(k)]
     w * k / sum(w)
   } else {
     NULL
   }
+
+  # --- precompute fold data (A_train, A_test, y_train, y_test splits) -----
+  # AtRinvA_train is only useful for solver="cholesky". For woodbury it is
+  # never used, and computing it for a dense p x p matrix is expensive.
+  fold_data <- .precompute_fold_data(y, A, R_inv, folds,
+                                     precompute_AtA = (solver == "cholesky"))
 
   if (weighted_folds && verbose) {
     message(sprintf("weighted_folds = TRUE: fold sizes = %s",
@@ -161,7 +166,8 @@ tune_cv <- function(y, A, Q_fun,
       fold_C_list  = fold_C_list,
       precond_fun  = precond_fun,
       fold_weights = fold_weights,
-      parallel     = parallel
+      parallel     = parallel,
+      fold_data    = fold_data
     )
 
     cv_score <- .eval_cv(
@@ -171,7 +177,8 @@ tune_cv <- function(y, A, Q_fun,
       fold_C_list  = fold_C_list,
       precond_fun  = precond_fun,
       fold_weights = fold_weights,
-      parallel     = parallel
+      parallel     = parallel,
+      fold_data    = fold_data
     )
 
     if (!is.finite(cv_score)) return(.Machine$double.xmax)
@@ -207,7 +214,8 @@ tune_cv <- function(y, A, Q_fun,
         fold_C_list  = fold_C_list,
         precond_fun  = precond_fun,
         fold_weights = fold_weights,
-        parallel     = parallel),
+        parallel     = parallel,
+        fold_data    = fold_data),
       interval = c(log_phi_lower, log_phi_upper),
       tol      = 1e-4
     )$minimum)
@@ -290,7 +298,8 @@ tune_cv <- function(y, A, Q_fun,
       fold_C_list  = fold_C_list,
       precond_fun  = precond_fun,
       fold_weights = fold_weights,
-      parallel     = parallel
+      parallel     = parallel,
+      fold_data    = fold_data
     )
   } else {
     prior_opt <- if (!q_fun_fold_aware) Q_fun(numeric(0)) else NULL
@@ -299,10 +308,11 @@ tune_cv <- function(y, A, Q_fun,
 
   prior_full <- if (q_fun_fold_aware) Q_fun(theta_opt, A) else prior_opt
 
+  final_Q_inv <- if (!is.null(prior_full$Q_inv)) prior_full$Q_inv else Q_inv
   fit_full <- fit_fastblm(y, A, prior_full$Q, phi = phi_final,
                           R_inv       = R_inv,
                           solver      = solver,
-                          Q_inv       = Q_inv,
+                          Q_inv       = final_Q_inv,
                           pcg_tol     = pcg_tol,
                           pcg_maxit   = pcg_maxit,
                           pcg_precond = prior_full$precond)
@@ -313,7 +323,8 @@ tune_cv <- function(y, A, Q_fun,
                        fold_C_list  = fold_C_list,
                        precond_fun  = precond_fun,
                        fold_weights = fold_weights,
-                       parallel     = parallel)
+                       parallel     = parallel,
+                       fold_data    = fold_data)
 
   if (verbose)
     message(sprintf("Optimum: phi=%.4g  sigma2e=%.4g  cv_%s=%.4g",
@@ -359,6 +370,45 @@ tune_cv <- function(y, A, Q_fun,
 }
 
 # -----------------------------------------------------------------------
+# Internal: precompute per-fold data splits (done once, reused every iteration)
+# -----------------------------------------------------------------------
+.precompute_fold_data <- function(y, A, R_inv, folds, precompute_AtA = TRUE) {
+  k <- max(folds)
+  lapply(seq_len(k), function(fold) {
+    test_idx    <- which(folds == fold)
+    train_idx   <- which(folds != fold)
+    A_train     <- A[train_idx, , drop = FALSE]
+    R_inv_train <- if (!is.null(R_inv)) R_inv[train_idx, train_idx] else NULL
+    y_train     <- y[train_idx]
+    Rinvy_train <- if (is.null(R_inv_train)) y_train else
+      as.numeric(R_inv_train %*% y_train)
+
+    # Precompute A'RA once per fold -- only useful for cholesky solver.
+    # Skip for woodbury (where it is never used) to avoid O(n*p^2) upfront cost.
+    AtRinvA_train <- if (precompute_AtA) {
+      if (is.null(R_inv_train)) Matrix::crossprod(A_train)
+      else Matrix::crossprod(A_train, R_inv_train %*% A_train)
+    } else NULL
+
+    AtRinvy_train <- as.numeric(Matrix::crossprod(A_train, Rinvy_train))
+    yRinvy_train  <- as.numeric(Matrix::crossprod(y_train, Rinvy_train))
+
+    list(
+      train_idx     = train_idx,
+      test_idx      = test_idx,
+      y_train       = y_train,
+      y_test        = y[test_idx],
+      A_train       = A_train,
+      A_test        = A[test_idx, , drop = FALSE],
+      R_inv_train   = R_inv_train,
+      AtRinvA_train = AtRinvA_train,
+      AtRinvy_train = AtRinvy_train,
+      yRinvy_train  = yRinvy_train
+    )
+  })
+}
+
+# -----------------------------------------------------------------------
 # Internal: precompute per-fold constraint matrices
 # -----------------------------------------------------------------------
 .precompute_fold_constraints <- function(constraint_fn, A, folds) {
@@ -380,7 +430,8 @@ tune_cv <- function(y, A, Q_fun,
                             fold_C_list  = NULL,
                             precond_fun  = NULL,
                             fold_weights = NULL,
-                            parallel     = FALSE) {
+                            parallel     = FALSE,
+                            fold_data    = NULL) {
   opt <- stats::optimize(
     f        = function(lp) .eval_cv(
       y, A, Q_fun, theta, prior, exp(lp), folds,
@@ -389,7 +440,8 @@ tune_cv <- function(y, A, Q_fun,
       fold_C_list  = fold_C_list,
       precond_fun  = precond_fun,
       fold_weights = fold_weights,
-      parallel     = parallel),
+      parallel     = parallel,
+      fold_data    = fold_data),
     interval = c(log_phi_lower, log_phi_upper),
     tol      = 1e-4
   )
@@ -405,20 +457,31 @@ tune_cv <- function(y, A, Q_fun,
                      fold_C_list  = NULL,
                      precond_fun  = NULL,
                      fold_weights = NULL,
-                     parallel     = FALSE) {
+                     parallel     = FALSE,
+                     fold_data    = NULL) {
   k                <- max(folds)
   q_fun_fold_aware <- (length(formals(Q_fun)) >= 2L)
 
   .fit_fold <- function(fold) {
-    test_idx  <- which(folds == fold)
-    train_idx <- which(folds != fold)
-
-    y_train <- y[train_idx]
-    A_train <- A[train_idx, , drop = FALSE]
-    y_test  <- y[test_idx]
-    A_test  <- A[test_idx, , drop = FALSE]
-
-    R_inv_train <- if (!is.null(R_inv)) R_inv[train_idx, train_idx] else NULL
+    # Use precomputed splits if available, otherwise compute on the fly
+    fd <- if (!is.null(fold_data)) fold_data[[fold]] else {
+      test_idx  <- which(folds == fold)
+      train_idx <- which(folds != fold)
+      list(
+        train_idx   = train_idx,
+        test_idx    = test_idx,
+        y_train     = y[train_idx],
+        y_test      = y[test_idx],
+        A_train     = A[train_idx, , drop = FALSE],
+        A_test      = A[test_idx,  , drop = FALSE],
+        R_inv_train = if (!is.null(R_inv)) R_inv[train_idx, train_idx] else NULL
+      )
+    }
+    y_train     <- fd$y_train
+    A_train     <- fd$A_train
+    y_test      <- fd$y_test
+    A_test      <- fd$A_test
+    R_inv_train <- fd$R_inv_train
 
     fold_prior <- if (q_fun_fold_aware)
       tryCatch(Q_fun(theta, A_train), error = function(e) NULL)
@@ -426,6 +489,9 @@ tune_cv <- function(y, A, Q_fun,
       prior
 
     if (is.null(fold_prior) || is.null(fold_prior$Q)) return(Inf)
+
+    # Use Q_inv from prior if available (updated each theta), else fall back to fixed Q_inv
+    fold_Q_inv <- if (!is.null(fold_prior$Q_inv)) fold_prior$Q_inv else Q_inv
 
     pcg_precond <- if (!is.null(precond_fun))
       precond_fun(phi, fold_prior, A_train, y_train)
@@ -436,10 +502,13 @@ tune_cv <- function(y, A, Q_fun,
       fit_fastblm(y_train, A_train, fold_prior$Q, phi = phi,
                   R_inv       = R_inv_train,
                   solver      = solver,
-                  Q_inv       = Q_inv,
+                  Q_inv       = fold_Q_inv,
                   pcg_tol     = pcg_tol,
                   pcg_maxit   = pcg_maxit,
-                  pcg_precond = pcg_precond),
+                  pcg_precond = pcg_precond,
+                  AtRinvA     = fd$AtRinvA_train,
+                  AtRinvy     = fd$AtRinvy_train,
+                  yRinvy      = fd$yRinvy_train),
       error = function(e) {
         warning(sprintf("fold %d: fit_fastblm failed at phi=%.4g: %s",
                         fold, phi, conditionMessage(e)))
@@ -484,6 +553,7 @@ tune_cv <- function(y, A, Q_fun,
         pcg_tol          = pcg_tol,
         pcg_maxit        = pcg_maxit,
         fold_C_list      = fold_C_list,
+        fold_data        = fold_data,
         precond_fun      = precond_fun,
         q_fun_fold_aware = q_fun_fold_aware,
         fit_fastblm      = fastblm::fit_fastblm,
