@@ -30,13 +30,12 @@ fit_fastblm(
 
 \item{phi}{signal-to-noise ratio \eqn{\sigma^2_b / \sigma^2_e}}
 
-\item{R_inv}{n x n inverse noise covariance, or function \eqn{v \mapsto R^{-1}v}. NULL = identity.}
+\item{R_inv}{n x n inverse noise covariance, or function. NULL = identity.}
 
-\item{Q_inv}{p x p prior covariance matrix, or function \eqn{v \mapsto Q^{-1}v}.
+\item{Q_inv}{p x p prior covariance, or function \eqn{v \mapsto Q^{-1}v}.
 Required for \code{solver = "woodbury"}.}
 
-\item{A_t}{optional transpose operator function \eqn{v \mapsto A^\top v}.
-Required if A is a function.}
+\item{A_t}{optional transpose operator. Required if A is a function.}
 
 \item{solver}{one of \code{"cholesky"}, \code{"pcg"}, or \code{"woodbury"}}
 
@@ -44,8 +43,7 @@ Required if A is a function.}
 
 \item{pcg_maxit}{PCG max iterations}
 
-\item{pcg_precond}{optional preconditioner function \eqn{v \mapsto M^{-1} v}
-passed to \code{\link{pcg}}. NULL = identity (no preconditioning).}
+\item{pcg_precond}{optional preconditioner function}
 }
 \value{
 object of class fastblm_fit
@@ -57,13 +55,8 @@ Computes the posterior mean of \eqn{x} given
 \eqn{\varepsilon \sim N(0, \sigma^2_e R)}.
 }
 \details{
-\eqn{\sigma^2_e} is estimated as the posterior mode given \eqn{\phi}:
-\deqn{\hat{\sigma}^2_e = \frac{y^\top R^{-1} y - \mu^\top A^\top R^{-1} y}{n}}
-
-Three solvers are available:
-\describe{
-\item{\code{"cholesky"}}{p x p Cholesky factor. Best when p << n.}
-\item{\code{"pcg"}}{Iterative PCG. Best when p >> n and \eqn{Q^{-1}} is not cheap.}
-\item{\code{"woodbury"}}{n x n Cholesky via Woodbury. Best when p >> n and \eqn{Q^{-1}} is cheap.}
-}
+\eqn{\sigma^2_e} is estimated as the posterior mode under a Jeffreys prior:
+\deqn{\hat{\sigma}^2_e = \frac{
+  \|y - A\mu\|^2_{R^{-1}} + \mu^\top (Q/\phi) \mu
+}{n + 2}}
 }
