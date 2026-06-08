@@ -4,16 +4,15 @@
 #   - .estimate_sigma2e replaced with .estimate_sigma2_mode using the correct
 #     posterior mode formula under Jeffreys prior:
 #
-#       sigma2_mode = (0.5*RSS + 0.5*penalty) / (n/2 + 1)
+#       sigma2_mode = (RSS + penalty) / (n + 2)
 #
-#     where RSS     = ||y - A*mu||^2  (via already-computed quantities)
-#           penalty = mu' (Q/phi) mu  (prior precision term)
-#
-#     Previously: sigma2e = (y'y - mu'A'y) / n  which omits the penalty
-#     and uses n instead of n+2 in the denominator.
+#     where RSS     = ||y - A*mu||^2_{R^{-1}}
+#           penalty = mu' (Q/phi) mu
 #
 #   - .fit_woodbury gains a Q argument so penalty can be computed.
 #   - fit_fastblm passes Q through to .fit_woodbury.
+#   - .fit_pcg fixed: removed broken .estimate_sigma2_mode(A=NULL) call;
+#     sigma2e now computed directly using apply_A operator.
 
 
 #' Fit a Bayesian linear model
@@ -73,7 +72,7 @@ fit_fastblm <- function(y, A, Q, phi,
     stop_if_function(R_inv, "R_inv")
     apply_Qinv <- as_apply(Q_inv)
     Rinv       <- resolve_Rinv(R_inv, n)
-    .fit_woodbury(y, A, Q, apply_Qinv, phi, Rinv, n, p)  # Q now passed through
+    .fit_woodbury(y, A, Q, apply_Qinv, phi, Rinv, n, p)
 
   } else if (solver == "pcg") {
     apply_A    <- as_apply(A)
@@ -100,34 +99,33 @@ fit_fastblm <- function(y, A, Q, phi,
 #         beta | sigma2    ~ N(0, phi * sigma2 * Q^{-1})
 #         sigma2           ~ Jeffreys (1/sigma2)
 #
-# Marginalising over sigma2 gives an inverse-gamma posterior with:
-#   shape a_n = n/2
-#   rate  b_n = 0.5 * RSS + 0.5 * penalty
+# Joint posterior mode of sigma2 (plugging in posterior mean mu):
+#   sigma2_mode = (RSS + penalty) / (n + 2)
 #
-# Posterior mode = b_n / (a_n + 1) = (RSS + penalty) / (n + 2)
+# where:
+#   RSS     = ||y - A*mu||^2_{R^{-1}}  = y'R^{-1}y - 2*mu'A'R^{-1}y + mu'A'R^{-1}A*mu
+#   penalty = mu' (Q/phi) mu           = (1/phi) * mu' Q mu
 #
-# Arguments (all pre-computed at fit time):
-#   yRinvy  : y' R^{-1} y                (scalar)
-#   AtRinvy : A' R^{-1} y                (p-vector)
-#   mu      : posterior mean              (p-vector)
-#   Qmu     : Q %*% mu                   (p-vector)  -- for penalty
-#   phi     : signal-to-noise ratio       (scalar)
-#   n       : number of observations      (scalar)
-#   AtRinvAmu : A' R^{-1} A mu           (p-vector, optional)
-#               if NULL, RSS computed as sum((y - A%*%mu)^2) directly
+# Arguments:
+#   yRinvy    : y' R^{-1} y                   (scalar)
+#   AtRinvy   : A' R^{-1} y                   (p-vector)
+#   mu        : posterior mean                 (p-vector)
+#   Qmu       : Q %*% mu                      (p-vector)
+#   phi       : signal-to-noise ratio          (scalar)
+#   n         : number of observations         (scalar)
+#   AtRinvAmu : A' R^{-1} A mu (cholesky path, optional)
+#   y, A, Rinv: used in woodbury path when AtRinvAmu is NULL
 # ------------------------------------------------------------------------------
 .estimate_sigma2_mode <- function(yRinvy, AtRinvy, mu, Qmu, phi, n,
                                   AtRinvAmu = NULL, y = NULL, A = NULL,
                                   Rinv = NULL) {
-  # RSS = y'R^{-1}y - 2*mu'A'R^{-1}y + mu'A'R^{-1}A*mu
   if (!is.null(AtRinvAmu)) {
-    # Cholesky path: all cross-products available cheaply
+    # Cholesky path: use precomputed cross-products
     RSS <- as.numeric(yRinvy
                       - 2 * Matrix::crossprod(mu, AtRinvy)
                       + Matrix::crossprod(mu, AtRinvAmu))
   } else {
-    # Woodbury / PCG path: compute directly from residual
-    # For R = I this is just sum((y - A*mu)^2)
+    # Woodbury path: compute from residual directly
     resid <- y - as.numeric(A %*% mu)
     if (!is.null(Rinv)) {
       RSS <- as.numeric(Matrix::crossprod(resid, Rinv %*% resid))
@@ -136,10 +134,7 @@ fit_fastblm <- function(y, A, Q, phi,
     }
   }
 
-  # Prior penalty: mu' (Q/phi) mu = (1/phi) * mu' Q mu
   penalty <- as.numeric(Matrix::crossprod(mu, Qmu)) / phi
-
-  # Posterior mode of sigma2 (Inverse-Gamma)
   (RSS + penalty) / (n + 2)
 }
 
@@ -156,11 +151,11 @@ fit_fastblm <- function(y, A, Q, phi,
     AtRinvA <- Matrix::crossprod(A, Rinv %*% A)
   }
 
-  K       <- Matrix::forceSymmetric(AtRinvA + (1/phi) * Q)
-  C       <- Matrix::Cholesky(K)
-  mu      <- as.numeric(Matrix::solve(C, AtRinvy))
+  K  <- Matrix::forceSymmetric(AtRinvA + (1/phi) * Q)
+  C  <- Matrix::Cholesky(K)
+  mu <- as.numeric(Matrix::solve(C, AtRinvy))
 
-  Qmu     <- as.numeric(Q %*% mu)
+  Qmu       <- as.numeric(Q %*% mu)
   AtRinvAmu <- as.numeric(AtRinvA %*% mu)
 
   sigma2e <- .estimate_sigma2_mode(
@@ -195,7 +190,6 @@ fit_fastblm <- function(y, A, Q, phi,
 
 # ------------------------------------------------------------------------------
 # Internal: fit via n x n Woodbury Cholesky
-# Q is now passed through so penalty can be computed.
 # ------------------------------------------------------------------------------
 .fit_woodbury <- function(y, A, Q, apply_Qinv, phi, Rinv, n, p) {
   At     <- Matrix::t(A)
@@ -209,10 +203,9 @@ fit_fastblm <- function(y, A, Q, phi,
   M       <- Matrix::forceSymmetric(phi * AQinvAt + solve(Rinv))
   CM      <- Matrix::Cholesky(Matrix::Matrix(M, sparse = FALSE))
 
-  Minvy   <- as.numeric(Matrix::solve(CM, y))
-  mu      <- phi * as.numeric(QinvAt %*% Minvy)
+  Minvy <- as.numeric(Matrix::solve(CM, y))
+  mu    <- phi * as.numeric(QinvAt %*% Minvy)
 
-  # Compute Qmu for penalty (Q may be a matrix or function)
   Qmu <- if (is_matrix(Q)) {
     as.numeric(Q %*% mu)
   } else {
@@ -261,6 +254,7 @@ fit_fastblm <- function(y, A, Q, phi,
 # ------------------------------------------------------------------------------
 .fit_pcg <- function(y, apply_A, apply_At, apply_Q, phi, apply_Rinv, n,
                      tol, maxit, precond = NULL) {
+
   Rinvy   <- apply_Rinv(y)
   AtRinvy <- apply_At(Rinvy)
   yRinvy  <- as.numeric(Matrix::crossprod(y, Rinvy))
@@ -268,24 +262,14 @@ fit_fastblm <- function(y, A, Q, phi,
   apply_K <- make_apply_K(apply_A, apply_At, apply_Q, apply_Rinv, phi)
   result  <- pcg(apply_K, AtRinvy, tol = tol, maxit = maxit, precond = precond)
   if (!result$converged) warning("PCG did not converge at fit time.")
-  mu      <- result$x
+  mu <- result$x
 
-  Qmu <- apply_Q(mu)
-
-  sigma2e <- .estimate_sigma2_mode(
-    yRinvy  = yRinvy,
-    AtRinvy = AtRinvy,
-    mu      = mu,
-    Qmu     = Qmu,
-    phi     = phi,
-    n       = n,
-    y       = y,
-    A       = NULL,        # PCG: use apply_A for residual
-    Rinv    = NULL
-  )
-  # Override: compute RSS via apply_A since A matrix not stored
+  # sigma2e: joint posterior mode of sigma2 given mu, under Jeffreys prior
+  #   sigma2_mode = (RSS + mu'Qmu/phi) / (n + 2)
+  # RSS uses R=I (PCG path does not store R_inv as a matrix).
+  Qmu     <- apply_Q(mu)
   resid   <- y - apply_A(mu)
-  RSS     <- sum(resid^2)   # assumes R = I for PCG path
+  RSS     <- sum(resid^2)
   penalty <- as.numeric(Matrix::crossprod(mu, Qmu)) / phi
   sigma2e <- (RSS + penalty) / (n + 2)
 

@@ -24,6 +24,19 @@ posterior_se <- function(fit, A_new = NULL, n_probes = 50L) {
   stopifnot(inherits(fit, "fastblm_fit"))
   p <- length(fit$posterior_mean)
 
+  msg <- switch(fit$solver_type,
+                cholesky = sprintf(
+                  "posterior_se: exact, reusing cached Cholesky factor from fit (p=%d, n_new=%s).",
+                  p, if (is.null(A_new)) "p" else as.character(nrow(A_new))),
+                woodbury = sprintf(
+                  "posterior_se: exact, using cached Woodbury factor from fit -- exploits n x n structure so cost depends on n_obs=%d not p=%d.",
+                  nrow(fit$QinvAt), p),
+                pcg = sprintf(
+                  "posterior_se: APPROXIMATE stochastic Hutchinson estimator (%d probes). Increase n_probes for higher accuracy.",
+                  n_probes)
+  )
+  message(msg)
+
   # unconstrained diagonal variance
   diag_var <- switch(fit$solver_type,
                      cholesky = .diag_var_cholesky(fit, A_new, p),
@@ -116,11 +129,8 @@ posterior_se <- function(fit, A_new = NULL, n_probes = 50L) {
   W <- t(forwardsolve(t(CC), t(SigmaCt)))   # p x q  (dense, q is small)
 
   if (is.null(A_new)) {
-    # W is dense p x q -- rowSums fine
     Matrix::rowSums(W^2)
   } else {
-    # A_new may be sparse (e.g. [I_p | X_grid] for augmented fits).
-    # Use Matrix::rowSums to handle both sparse and dense results correctly.
     AnewW <- A_new %*% W              # n_new x q
     Matrix::rowSums(AnewW^2)
   }
